@@ -22,6 +22,7 @@
   "dependencies": {
     "axios": "^0.19.2",
     "cheerio": "^1.0.0-rc.3",
+    "dotenv": "^17.2.3",
     "iconv-lite": "^0.5.1",
     "moment": "^2.26.0",
     "node-telegram-bot-api": "^0.50.0"

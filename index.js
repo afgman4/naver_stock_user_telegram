@@ -1,7 +1,10 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+require('dotenv').config();
 
-const token = '';
+const token = process.env.TELEGRAM_TOKEN;
+const slackUrl = process.env.SLACK_WEBHOOK_URL;
+
 const bot = new TelegramBot(token, { polling: true });
 
 const TARGET_PROFILE_ID = '28660300270188259';
