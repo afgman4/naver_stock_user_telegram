@@ -5,14 +5,13 @@ require('dotenv').config();
 const token = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// 감시 대상 유저 배열
 const TARGET_USER_IDS = ['28660300270188259', '28658691976131524', '28660200967372522'];
 const CHECK_INTERVAL = 30000; 
 
 let lastPostIds = {};
 let isMonitoring = false;
 
-console.log("🚀 다중 유저 감시 및 정밀 링크 모드 가동");
+console.log("🚀 다중 유저 모니터링 가동 (본문 100자 제한)");
 
 async function fetchUserPost(profileId) {
     const url = `https://m.stock.naver.com/front-api/profile/user/discussionList`;
@@ -40,7 +39,39 @@ function cleanContent(html) {
         .replace(/<[^>]*>?/gm, "")
         .replace(/&nbsp;/g, " ")
         .replace(/&gt;/g, ">")
-        .replace(/&lt;/g, "<");
+        .replace(/&lt;/g, "<")
+        .trim();
+}
+
+/**
+ * 메시지 생성 및 전송 공통 함수 (본문 100자 제한)
+ */
+function sendPostMessage(chatId, post, label = "🔔 새 글 알림") {
+    const currentPostId = post.postId;
+    const nickname = post.nickname || "사용자";
+    const stockType = post.item?.discussionType === 'domesticStock' ? 'domestic/stock' : 'world/stock';
+    const itemCode = post.item?.itemCode;
+    
+    // 알려주신 최신 링크 구조
+    const postLink = `https://m.stock.naver.com/${stockType}/${itemCode}/discussion/${currentPostId}?from=profile`;
+    
+    // 본문 추출 및 500자 제한
+    let fullContent = cleanContent(post.contentSwReplaced);
+    const isTruncated = fullContent.length > 100;
+    const displayContent = isTruncated ? fullContent.substring(0, 100) + "..." : fullContent;
+
+    const msg = 
+`[${label}]
+
+👤 **작성자**: ${nickname}
+🏢 **종목**: ${post.item?.itemName} (${itemCode})
+📝 **제목**: ${post.title}
+------------------------------------------
+${displayContent}
+
+🔗 [원문 읽기](${postLink})`;
+
+    bot.sendMessage(chatId, msg, { parse_mode: 'Markdown', disable_web_page_preview: false });
 }
 
 async function checkAllUsers(chatId) {
@@ -51,41 +82,19 @@ async function checkAllUsers(chatId) {
         
         if (post) {
             const currentPostId = post.postId;
-            const nickname = post.nickname || "알 수 없는 사용자";
 
-            // 1. 초기화 로직
             if (!lastPostIds[profileId]) {
                 lastPostIds[profileId] = currentPostId;
-                console.log(`✅ [${nickname}] 감시 시작`);
+                // 첫 실행 시 1건 발송하여 링크 및 데이터 확인
+                sendPostMessage(chatId, post, "✅ 연결 성공 (최신글 테스트)");
             } 
-            // 2. 새 글 발견 시 알림
             else if (lastPostIds[profileId] !== currentPostId) {
                 lastPostIds[profileId] = currentPostId;
-                
-                // 🔗 알려주신 링크 구조 반영 (국내주식/해외주식 구분 처리)
-                const stockType = post.item?.discussionType === 'domesticStock' ? 'domestic/stock' : 'world/stock';
-                const itemCode = post.item?.itemCode;
-                const postLink = `https://m.stock.naver.com/${stockType}/${itemCode}/discussion/${currentPostId}?from=profile`;
-
-                const fullContent = cleanContent(post.contentSwReplaced);
-
-                const alertMsg = 
-`🔔 **새 글 알림**
-
-👤 **작성자**: ${nickname}
-🏢 **종목**: ${post.item?.itemName}
-📝 **제목**: ${post.title}
-
-------------------------------------------
-${fullContent.substring(0, 1500)}...
-
-🔗 [게시글 원문 읽기](${postLink})`;
-
-                bot.sendMessage(chatId, alertMsg, { parse_mode: 'Markdown', disable_web_page_preview: false });
-                console.log(`✨ [${nickname}] 새 글 알림 발송`);
+                sendPostMessage(chatId, post, "🔔 새 글 알림");
+                console.log(`✨ [${post.nickname}] 새 글 발송 완료`);
             }
         }
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 유저 간 1초 간격
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     setTimeout(() => checkAllUsers(chatId), CHECK_INTERVAL);
@@ -95,11 +104,11 @@ bot.onText(/\/on/, (msg) => {
     if (isMonitoring) return;
     isMonitoring = true;
     lastPostIds = {}; 
-    bot.sendMessage(msg.chat.id, `🚀 ${TARGET_USER_IDS.length}명에 대한 실시간 감시를 시작합니다.`);
+    bot.sendMessage(msg.chat.id, `🚀 ${TARGET_USER_IDS.length}명의 모니터링을 시작합니다. (첫 글 로드 중...)`);
     checkAllUsers(msg.chat.id);
 });
 
 bot.onText(/\/off/, (msg) => {
     isMonitoring = false;
-    bot.sendMessage(msg.chat.id, "🛑 모니터링 중단됨");
+    bot.sendMessage(msg.chat.id, "🛑 모니터링이 중단되었습니다.");
 });
