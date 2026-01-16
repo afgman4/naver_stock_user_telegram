@@ -3,97 +3,103 @@ const axios = require('axios');
 require('dotenv').config();
 
 const token = process.env.TELEGRAM_TOKEN;
-const slackUrl = process.env.SLACK_WEBHOOK_URL;
-
 const bot = new TelegramBot(token, { polling: true });
 
-const TARGET_PROFILE_ID = '28660300270188259';
+// 감시 대상 유저 배열
+const TARGET_USER_IDS = ['28660300270188259', '28658691976131524', '28660200967372522'];
 const CHECK_INTERVAL = 30000; 
 
-let lastPostId = null;
+let lastPostIds = {};
 let isMonitoring = false;
 
-console.log("🚀 본문 전체 추출 모드 가동");
+console.log("🚀 다중 유저 감시 및 정밀 링크 모드 가동");
 
-async function fetchNaverPosts() {
+async function fetchUserPost(profileId) {
     const url = `https://m.stock.naver.com/front-api/profile/user/discussionList`;
     try {
         const response = await axios.get(url, {
-            params: { profileId: TARGET_PROFILE_ID, pageSize: 50 },
+            params: { profileId: profileId, pageSize: 10 },
             headers: {
-                'referer': `https://m.stock.naver.com/profile/${TARGET_PROFILE_ID}`,
+                'referer': `https://m.stock.naver.com/profile/${profileId}`,
                 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         });
         const posts = response.data?.result?.posts;
         return (posts && posts.length > 0) ? posts[0] : null;
     } catch (error) {
-        console.error(`❌ 호출 실패: ${error.message}`);
+        console.error(`❌ [${profileId}] 호출 실패: ${error.message}`);
         return null;
     }
 }
 
-// HTML 태그 제거 함수 (네이버 본문의 <br> 등을 줄바꿈으로 변환)
 function cleanContent(html) {
     if (!html) return "";
     return html
-        .replace(/<br\s*\/?>/gi, "\n") // <br> 태그를 실제 줄바꿈으로
-        .replace(/<\/p>/gi, "\n")      // </p> 태그를 줄바꿈으로
-        .replace(/<[^>]*>?/gm, "")    // 나머지 모든 HTML 태그 제거
-        .replace(/&nbsp;/g, " ")      // 공백 문자 변환
-        .replace(/&gt;/g, ">")        // 부등호 변환
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/p>/gi, "\n")
+        .replace(/<[^>]*>?/gm, "")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&gt;/g, ">")
         .replace(/&lt;/g, "<");
 }
 
-async function monitor(chatId) {
+async function checkAllUsers(chatId) {
     if (!isMonitoring) return;
 
-    const post = await fetchNaverPosts();
-    if (post) {
-        const currentPostId = post.postId;
+    for (const profileId of TARGET_USER_IDS) {
+        const post = await fetchUserPost(profileId);
+        
+        if (post) {
+            const currentPostId = post.postId;
+            const nickname = post.nickname || "알 수 없는 사용자";
 
-        if (lastPostId === null) {
-            lastPostId = currentPostId;
-            const fullContent = cleanContent(post.contentSwReplaced);
-            
-            const welcomeMsg = 
-`✅ **모니터링 연결 성공! 현재 최신글 전문**
+            // 1. 초기화 로직
+            if (!lastPostIds[profileId]) {
+                lastPostIds[profileId] = currentPostId;
+                console.log(`✅ [${nickname}] 감시 시작`);
+            } 
+            // 2. 새 글 발견 시 알림
+            else if (lastPostIds[profileId] !== currentPostId) {
+                lastPostIds[profileId] = currentPostId;
+                
+                // 🔗 알려주신 링크 구조 반영 (국내주식/해외주식 구분 처리)
+                const stockType = post.item?.discussionType === 'domesticStock' ? 'domestic/stock' : 'world/stock';
+                const itemCode = post.item?.itemCode;
+                const postLink = `https://m.stock.naver.com/${stockType}/${itemCode}/discussion/${currentPostId}?from=profile`;
 
+                const fullContent = cleanContent(post.contentSwReplaced);
+
+                const alertMsg = 
+`🔔 **새 글 알림**
+
+👤 **작성자**: ${nickname}
 🏢 **종목**: ${post.item?.itemName}
 📝 **제목**: ${post.title}
-📅 **작성일**: ${post.writtenAt}
+
 ------------------------------------------
-${fullContent.substring(0, 3000)} // 텔레그램 글자 제한 고려`;
+${fullContent.substring(0, 1500)}...
 
-            bot.sendMessage(chatId, welcomeMsg);
-        } 
-        else if (lastPostId !== currentPostId) {
-            lastPostId = currentPostId;
-            const fullContent = cleanContent(post.contentSwReplaced);
+🔗 [게시글 원문 읽기](${postLink})`;
 
-            const alertMsg = 
-`🔔 **새 글 알림 (본문 포함)**
-
-🏢 **종목**: ${post.item?.itemName}
-📝 **제목**: ${post.title}
-------------------------------------------
-${fullContent.substring(0, 3000)}`;
-
-            bot.sendMessage(chatId, alertMsg);
-            console.log(`✨ 새 글 본문 발송 완료: ${post.title}`);
+                bot.sendMessage(chatId, alertMsg, { parse_mode: 'Markdown', disable_web_page_preview: false });
+                console.log(`✨ [${nickname}] 새 글 알림 발송`);
+            }
         }
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 유저 간 1초 간격
     }
-    setTimeout(() => monitor(chatId), CHECK_INTERVAL);
+
+    setTimeout(() => checkAllUsers(chatId), CHECK_INTERVAL);
 }
 
 bot.onText(/\/on/, (msg) => {
+    if (isMonitoring) return;
     isMonitoring = true;
-    lastPostId = null;
-    bot.sendMessage(msg.chat.id, "🚀 모니터링 시작 (본문을 직접 긁어옵니다)");
-    monitor(msg.chat.id);
+    lastPostIds = {}; 
+    bot.sendMessage(msg.chat.id, `🚀 ${TARGET_USER_IDS.length}명에 대한 실시간 감시를 시작합니다.`);
+    checkAllUsers(msg.chat.id);
 });
 
 bot.onText(/\/off/, (msg) => {
     isMonitoring = false;
-    bot.sendMessage(msg.chat.id, "🛑 중단됨");
+    bot.sendMessage(msg.chat.id, "🛑 모니터링 중단됨");
 });
