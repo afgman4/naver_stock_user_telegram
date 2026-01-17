@@ -1,3 +1,7 @@
+process.env.NTBA_FIX_319 = 1; 
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first'); // 이 줄이 AggregateError를 해결합니다.
+
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 require('dotenv').config();
