@@ -13,7 +13,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
 // 2. 봇 설정 (새 토큰 반영)
-const token = '8366678875:AAFSa5V86_GAsDtt6uMZayXSoQSLNqAtHiM';
+const token = '';
 
 // 오라클 클라우드의 불안정한 연결을 잡기 위한 특수 옵션
 const bot = new TelegramBot(token, { 
