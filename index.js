@@ -1,6 +1,7 @@
 /**
  * [네이버 증권 고수 모니터링 봇 - 안티 크롤링 차단 회피 버전]
  */
+require('dotenv').config(); // <--- 이 줄을 맨 위에 추가하세요!
 const https = require('https');
 
 // 1. 시스템 설정
@@ -14,7 +15,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
 // 2. 설정 값
-const token = ''; // 여기에 토큰 입력
+const token = process.env.TELEGRAM_TOKEN; // 수정됨
 const USER_MAP = {
     '28660113375981590': '길40',
     '28660300270188259': '네2버',

@@ -1,0 +1,11 @@
+# 라이브러리 (용량 문제)
+node_modules/
+
+# 비밀 정보 (보안 문제)
+.env
+*.key
+
+# 로그 파일
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
