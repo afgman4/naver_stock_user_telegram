@@ -34,6 +34,7 @@ const userAgents = [
 const TARGET_USER_IDS = Object.keys(USER_MAP);
 let lastPostIds = {};
 let isMonitoring = false;
+let targetChatId = null; // 상단 변수 선언부에 추가
 
 // 3. 봇 객체 생성 (이 부분을 아래와 같이 수정하세요)
 const bot = new TelegramBot(token, {
@@ -141,7 +142,7 @@ async function checkLoop(chatId) {
     if (isMonitoring) {
         // 전체 한 바퀴 돈 후 대기 시간: 20초 ~ 40초 사이 무작위
         // 너무 짧으면 네이버에서 패턴을 파악하여 차단할 수 있음
-        const nextWait = Math.floor(Math.random() * (10000 - 2000 + 1) + 10000);
+        const nextWait = Math.floor(Math.random() * (2000 + 1) + 3000);
         console.log(`[대기] 다음 순회까지 ${nextWait/1000}초 휴식...`);
         setTimeout(() => checkLoop(chatId), nextWait); 
     }
@@ -166,10 +167,54 @@ bot.onText(/\/off/, (msg) => {
     bot.sendMessage(msg.chat.id, "🛑 모니터링을 종료합니다.");
 });
 
+bot.onText(/\/clear/, (msg) => {
+    // 1. 메모리에 저장된 마지막 게시글 ID 정보 삭제
+    lastPostIds = {}; 
+    
+    // 2. 혹시 모를 대기 중인 루프와의 충돌 방지를 위해 상태 알림
+    bot.sendMessage(msg.chat.id, "🧹 **데이터 초기화 완료**\n이전 게시글 기록을 모두 지웠습니다. 다시 처음부터 감시를 시작합니다.");
+    
+    console.log(`[${new Date().toLocaleTimeString()}] 사용자에 의해 데이터가 초기화되었습니다.`);
+});
+
+// --- [명령어: /help] ---
+bot.onText(/\/help/, (msg) => {
+    const helpMsg = `
+🚀 **네이버 고수 모니터링 봇 안내**
+
+✅ **기본 명령어**
+• \`/on\` : 실시간 감시 시작 (우회 모드)
+• \`/off\` : 모든 모니터링 중지
+• \`/clear\` : 수동 기록 초기화 (중복 방지 해제)
+• \`/help\` : 도움말 보기
+
+💡 **알림 주기 및 설정**
+• 유저별로 약 5초 간격으로 사람처럼 순회합니다.
+• 🕒 **자동 초기화**: 3시간마다 시스템이 감시 기록을 비워, 수정된 글이나 다시 올라온 글을 놓치지 않도록 합니다.
+    `;
+    bot.sendMessage(msg.chat.id, helpMsg, { parse_mode: 'Markdown' });
+});
+
 // 에러 핸들링
 bot.on('polling_error', (e) => {
     if (e.code !== 'EFATAL' && e.code !== 'ECONNRESET') return;
     console.log(`📡 통신 상태 확인 중...`);
 });
+
+/**
+ * 7. 자동 초기화 스케줄러 (3시간 마다)
+ */
+const THREE_HOURS = 3 * 60 * 60 * 1000; 
+
+setInterval(() => {
+    if (isMonitoring && targetChatId) {
+        lastPostIds = {}; // 기록 초기화
+        console.log(`[${new Date().toLocaleTimeString()}] 🕒 3시간 주기 자동 데이터 초기화 완료`);
+        
+        // 사용자에게 초기화 알림 (원치 않으시면 이 줄만 지우세요)
+        bot.sendMessage(targetChatId, "🕒 **정기 데이터 초기화 완료**\n원활한 감시를 위해 최근 기록을 비웠습니다. 지금부터 올라오는 글은 다시 새 글 처리됩니다.");
+    }
+}, THREE_HOURS);
+
 
 console.log("✅ 시스템 운영 준비 완료. 텔레그램 /on 명령어를 기다리는 중...");
